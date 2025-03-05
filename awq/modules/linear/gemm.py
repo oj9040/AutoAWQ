@@ -5,6 +5,7 @@ from torch.autograd import Function
 from awq.utils.module import try_import
 from awq.utils.utils import get_best_device
 from awq.utils.packing_utils import dequantize_gemm
+from awq.quantize.kv_quantizer import KVQuant
 
 # NOTE: We check if awq_ext or triton is available. awq_ext will be preferred if both are installed.
 
@@ -112,7 +113,7 @@ class WQLinearMMFunction(Function):
 
 class WQLinear_GEMM(nn.Module):
     def __init__(
-        self, w_bit, group_size, in_features, out_features, bias, dev, training=False
+        self, w_bit, group_size, in_features, out_features, bias, dev, training=False, name=None, out_dir=None
     ):
         super().__init__()
 
@@ -124,7 +125,15 @@ class WQLinear_GEMM(nn.Module):
         self.w_bit = w_bit
         self.group_size = group_size if group_size != -1 else in_features
         self.training = training
-
+        self.kv_quant = None
+        self.kv_nbits = 4
+        self.kv_group_size = 128
+        self.kv_symm = False
+        self.kv_shiftscale = False
+        self.kv_quant_alg = None
+        self.name = name
+        self.out_dir = out_dir
+        
         # quick sanity check (make sure aligment)
         assert self.in_features % self.group_size == 0
         assert out_features % (32 // self.w_bit) == 0
@@ -165,10 +174,10 @@ class WQLinear_GEMM(nn.Module):
         else:
             self.bias = None
 
+
     @classmethod
     def from_linear(
-        cls, linear, w_bit, group_size, init_only=False, scales=None, zeros=None
-    ):
+        cls, linear, w_bit, group_size, init_only=False, scales=None, zeros=None, name=None):
         awq_linear = cls(
             w_bit,
             group_size,
@@ -176,6 +185,7 @@ class WQLinear_GEMM(nn.Module):
             linear.out_features,
             linear.bias is not None,
             linear.weight.device,
+            name=name,
         )
         if init_only:  # just prepare for loading sd
             return awq_linear
@@ -280,16 +290,34 @@ class WQLinear_GEMM(nn.Module):
 
         if input_dtype != torch.float16:
             out = out.to(dtype=input_dtype)
+            
+        if self.kv_quant:
+            out = KVQuant.quantize(
+                out,
+                self.kv_nbits,
+                self.kv_group_size,
+                not self.kv_symm,
+                self.kv_shiftscale,
+                self.kv_quant_alg,
+                self.name,
+                self.out_dir,
+            )
 
         return out.reshape(out_shape)
 
     def extra_repr(self) -> str:
         return (
-            "in_features={}, out_features={}, bias={}, w_bit={}, group_size={}".format(
+            "in_features={}, out_features={}, bias={}, w_bit={}, group_size={}, kv_quant={}, kv_nbits={}, kv_group_size={}, kv_symm={}, kv_shiftscale={}, kv_quant_alg={}".format(
                 self.in_features,
                 self.out_features,
                 self.bias is not None,
                 self.w_bit,
                 self.group_size,
+                self.kv_quant,
+                self.kv_nbits,
+                self.kv_group_size,
+                self.kv_symm,
+                self.kv_shiftscale,
+                self.kv_quant_alg,
             )
         )

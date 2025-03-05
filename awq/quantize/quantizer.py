@@ -75,7 +75,7 @@ class AwqQuantizer:
         self.shift_scale = shift_scale
         
         print(f"zero point - {self.zero_point}")
-        print(f"shift_scale - {self.shift_scale}")
+        print(f"shift scale - {self.shift_scale}")
         print(f"twosteps - {self.twosteps}")
 
 
@@ -360,6 +360,7 @@ class AwqQuantizer:
 
             clear_memory()
 
+
     def pack(self):
         for i in tqdm(range(len(self.modules)), desc="Packing"):
             named_linears = get_named_linears(self.modules[i])
@@ -371,6 +372,7 @@ class AwqQuantizer:
 
     def _apply_quant(self, module, named_linears: Dict[str, nn.Linear]):
         for name, linear_layer in named_linears.items():
+            
             # NOTE: small regression in perplexity if linear layer uses .cpu().float()
             linear_layer = linear_layer.to(get_best_device()).half()
 
@@ -403,12 +405,14 @@ class AwqQuantizer:
                 init_only=False,
                 scales=scales,
                 zeros=zeros,
+                name=name,
             )
 
             linear_layer.cpu()
             q_linear.to(next(module.parameters()).device)
             set_op_by_name(module, name, q_linear)
             clear_memory()
+
 
     @torch.no_grad()
     def _module_forward(
@@ -768,6 +772,9 @@ class AwqQuantizer:
         return modules, layer_kwargs, inps
 
     def _get_input_feat(self, layer, named_linears):
+        # layer: a single transformer layer
+        # named_linears: dict of linears in a layer
+
         # firstly, get input features of all linear layers
         def cache_input_hook(m, x, y, name, feat_dict):
             x = x[0]
@@ -796,6 +803,8 @@ class AwqQuantizer:
                     functools.partial(cache_input_hook, name=name, feat_dict=input_feat)
                 )
             )
+        # self.inps.shape = [samples, tokens, hidden]
+        # layer.parameters() is generator type
         self.inps = self.inps.to(next(layer.parameters()).device)  # in case multi-gpu
         # get output as next layer's input
 
@@ -808,8 +817,8 @@ class AwqQuantizer:
         for h in handles:
             h.remove()
         # now solve for scaling and clipping
+        # input_feat = {linear name: tensor} where tensor.shape = [sample, tokens, hidden]
         input_feat = {k: torch.cat(v, dim=0) for k, v in input_feat.items()}
-
         return input_feat
 
     def _sanitize_kwargs(self, inputs_kwargs, module):

@@ -2,6 +2,7 @@ import torch
 import warnings
 import torch.nn as nn
 from awq.utils.module import try_import
+from awq.quantize.kv_quantizer import KVQuant
 
 awq_ext, msg = try_import("awq_ext")
 
@@ -36,6 +37,13 @@ class WQLinear_GEMV(nn.Module):
         self.w_bit = w_bit
         self.group_size = group_size if group_size != -1 else in_features
         self.split_k_iters = 8
+        self.kv_quant = None
+        self.kv_nbits = 4
+        self.kv_group_size = 128
+        self.kv_symm = False
+        self.kv_shiftscale = False
+        self.kv_quant_alg = None
+        self.kv_tmpvar = None
 
         # quick sanity check (make sure aligment)
         assert self.in_features % self.group_size == 0
@@ -76,7 +84,7 @@ class WQLinear_GEMV(nn.Module):
 
     @classmethod
     def from_linear(
-        cls, linear, w_bit, group_size, init_only=False, scales=None, zeros=None
+        cls, linear, w_bit, group_size, init_only=False, scales=None, zeros=None,
     ):
         awq_linear = cls(
             w_bit,
@@ -183,15 +191,33 @@ class WQLinear_GEMV(nn.Module):
             out = out.to(dtype=input_dtype)
 
         out = out + self.bias if self.bias is not None else out
+        
+        if self.kv_quant:
+            out, self.kv_tempvar = KVQuant.quantize(
+                out,
+                self.kv_nbits,
+                self.kv_group_size,
+                not self.kv_symm,
+                self.kv_shiftscale,
+                self.kv_quant_alg,
+                self.kv_tmpvar,
+            )
+            
         return out.reshape(out_shape)
 
     def extra_repr(self) -> str:
         return (
-            "in_features={}, out_features={}, bias={}, w_bit={}, group_size={}".format(
+            "in_features={}, out_features={}, bias={}, w_bit={}, group_size={}, kv_quant={}, kv_nbits={}, kv_group_size={}, kv_symm={}, kv_shiftscale={}, kv_quant_alg={}".format(
                 self.in_features,
                 self.out_features,
                 self.bias is not None,
                 self.w_bit,
                 self.group_size,
+                self.kv_quant,
+                self.kv_nbits,
+                self.kv_group_size,
+                self.kv_symm,
+                self.kv_shiftscale,
+                self.kv_quant_alg,
             )
         )
