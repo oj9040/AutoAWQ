@@ -14,6 +14,7 @@ class AwqConfig(PushToHubMixin):
     version: str = field(default="gemm")
     config_file_name = "config.json"
     modules_to_not_convert: Optional[List] = None
+    kv_quant: bool = field(default=False)
 
     @classmethod
     def from_dict(cls, quant_config: Dict = {}):
@@ -79,6 +80,7 @@ class AwqConfig(PushToHubMixin):
             "w_bit": self.w_bit,
             "version": self.version,
             "modules_to_not_convert": self.modules_to_not_convert,
+            "kv_quant": self.kv_quant,
         }
 
     def to_transformers_dict(self):
@@ -89,6 +91,7 @@ class AwqConfig(PushToHubMixin):
             "bits": self.w_bit,
             "version": self.version.lower(),
             "modules_to_not_convert": self.modules_to_not_convert,
+            "kv_quant": self.kv_quant,
         }
 
     def from_transformers_dict(self, transformers_dict: Dict):
@@ -99,4 +102,5 @@ class AwqConfig(PushToHubMixin):
             "w_bit": transformers_dict.get("bits"),
             "version": transformers_dict.get("version"),
             "modules_to_not_convert": transformers_dict.get("modules_to_not_convert"),
+            "kv_quant": transformers_dict.get("kv_quant"),
         }

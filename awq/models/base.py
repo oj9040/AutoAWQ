@@ -659,6 +659,7 @@ class BaseAWQForCausalLM(nn.Module):
 
             # Replace nn.Linear with WQLinear
             for name, module in named_linears.items():
+                
                 if use_ipex:
                     q_linear_module = WQLinear_IPEX
                 elif version == "marlin":
@@ -674,9 +675,8 @@ class BaseAWQForCausalLM(nn.Module):
                 elif version == "gemv_fast":
                     q_linear_module = WQLinear_GEMVFast
 
-
                 q_linear = q_linear_module.from_linear(
-                    module, quant_config.w_bit, quant_config.q_group_size, True
+                    module, quant_config.w_bit, quant_config.q_group_size, True, name
                 )
                 q_linear.to(next(layer.parameters()).device)
                 set_op_by_name(layer, name, q_linear)
